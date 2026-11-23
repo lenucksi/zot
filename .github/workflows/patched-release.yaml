@@ -205,11 +205,9 @@ jobs:
         run: |
           set -euo pipefail
           REF="ghcr.io/${{ github.repository_owner }}/zot:${{ needs.release.outputs.tag }}-patched"
-          cosign verify --key cosign.pub --new-bundle-format=false \
-            --registry-referrers-mode=legacy --use-signing-config=false "$REF" >/dev/null
+          cosign verify --key cosign.pub --new-bundle-format=false "$REF" >/dev/null
           echo "Positive verify OK"
           if cosign verify --key cosign.pub --new-bundle-format=false \
-            --registry-referrers-mode=legacy --use-signing-config=false \
             "ghcr.io/${{ github.repository_owner }}/zot@sha256:0000000000000000000000000000000000000000000000000000000000000000" \
             >/dev/null 2>&1; then
             echo "Negative control FAILED"
