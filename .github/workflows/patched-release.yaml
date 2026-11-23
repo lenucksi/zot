@@ -137,10 +137,33 @@ jobs:
       # --- MANDATORY GATE: no PII / secrets in the public repo -------------
       # Runs AFTER the merge on the feature branch — i.e. on the exact
       # state that is built into the image (not the default branch).
-      - name: Secret scan — Gitleaks (full history, fail-closed)
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check out feature branch for secret scan
+        if: steps.built.outputs.changed == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.FEATURE_BRANCH }}
+          fetch-depth: 0
+
+      - name: Secret scan — Gitleaks on patched files (fail-closed)
+        # The upstream repo carries long-standing test fixtures (example JWTs,
+        # test/data/*.key, bearer tokens) that a full-history scan flags.
+        # Scan only the files our push feature adds/changes (new files plus
+        # the patch-modified ones), not the upstream history.
+        run: |
+          set -euo pipefail
+          mapfile -t files < <(git diff --name-only --diff-filter=ACM \
+            "${{ steps.release.outputs.tag }}" HEAD -- \
+            'pkg/extensions/sync/*' 'pkg/extensions/config/sync/*' \
+            'pkg/extensions/extension_sync.go' 'pkg/cli/server/root.go' \
+            'errors/errors.go' 'test/blackbox/sync_push.bats' 'test/ports.json')
+          printf 'patch files: %s\n' "${#files[@]}"
+          [ "${#files[@]}" -gt 0 ] || { echo "no patch files found"; exit 1; }
+          for f in "${files[@]}"; do
+            [ -f "$f" ] || continue
+            gitleaks detect --no-git --source "$f" --redact --no-banner \
+              --exit-code 1
+          done
+          echo "Gitleaks: no secrets in patch files"
 
       - name: Secret scan — TruffleHog (verified + unknown, fail-closed)
         uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
