@@ -117,7 +117,11 @@ jobs:
           go build -tags sync ./...
           go test -tags sync -run 'TestPush|TestContent|TestMaterialize|TestDestination|TestSeed' ./pkg/extensions/sync/
           golangci-lint run --build-tags sync ./pkg/extensions/... ./errors/...
-          make verify-config
+          # python3-jsonschema from the runner has a different CLI than the
+          # apt version upstream uses; pin the compatible one and use the
+          # same USE_PREBUILT path as upstream verify-config.yaml.
+          python3 -m pip install --quiet 'jsonschema==4.17.3'
+          make USE_PREBUILT=1 verify-config
           make check-blackbox-prerequisites
           bats test/blackbox/sync_push.bats
 
