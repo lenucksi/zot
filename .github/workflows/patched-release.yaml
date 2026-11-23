@@ -124,7 +124,10 @@ jobs:
           python3 -m pip install --quiet 'jsonschema==4.17.3'
           make OS=linux ARCH=amd64 binary
           make USE_PREBUILT=1 OS=linux ARCH=amd64 verify-config
-          make check-blackbox-prerequisites
+          # check-blackbox-prerequisites is an upstream gate that probes
+          # crictl against /var/run/dockershim.sock, which does not exist on
+          # GitHub-hosted runners. Run the bats suite directly; it reports
+          # a missing tool itself if one is actually required.
           bats test/blackbox/sync_push.bats
 
       # --- MANDATORY GATE: no PII / secrets in the public repo -------------
