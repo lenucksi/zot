@@ -566,5 +566,15 @@
       "begin": 21200,
       "end": 21299
     }
+  },
+  "blackbox/emudhra.bats": {
+    "mitm": {
+      "begin": 11680,
+      "end": 11689
+    },
+    "zot": {
+      "begin": 11700,
+      "end": 11709
+    }
   }
 }

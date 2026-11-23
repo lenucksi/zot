@@ -2388,10 +2388,10 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 				StatBlobFn: statBlobMissingUnlessPresent(),
 			}
 
-			removedRef := ""
+			var removedRefs []string
 			metaDB := mocks.MetaDBMock{
 				RemoveRepoReferenceFn: func(repo, reference string, manifestDigest godigest.Digest) error {
-					removedRef = reference
+					removedRefs = append(removedRefs, reference)
 
 					return nil
 				},
@@ -2414,7 +2414,49 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 			err := gc.removeStaleManifestEntries(repoName, index)
 			So(err, ShouldBeNil)
 			So(len(index.Manifests), ShouldEqual, 0)
-			So(removedRef, ShouldEqual, "v1.0")
+			// The tag drops that index row. The digest call drops statistics, which a
+			// tag reference would keep.
+			So(removedRefs, ShouldResemble, []string{"v1.0", missingDigest.String()})
+		})
+
+		Convey("removeUnknownMediaTypeManifestEntries keeps statistics while another descriptor remains", func() {
+			sharedDigest := godigest.FromString("shared-blob")
+
+			var removedRefs []string
+			metaDB := mocks.MetaDBMock{
+				RemoveRepoReferenceFn: func(repo, reference string, manifestDigest godigest.Digest) error {
+					removedRefs = append(removedRefs, reference)
+
+					return nil
+				},
+			}
+
+			gc := NewGarbageCollect(mocks.MockedImageStore{}, metaDB, gcOptions, audit, log, metrics)
+
+			index := &ispec.Index{
+				Manifests: []ispec.Descriptor{
+					{
+						Digest:    sharedDigest,
+						MediaType: "application/unknown",
+						Annotations: map[string]string{
+							ispec.AnnotationRefName: "bad",
+						},
+					},
+					{
+						Digest:    sharedDigest,
+						MediaType: ispec.MediaTypeImageManifest,
+						Annotations: map[string]string{
+							ispec.AnnotationRefName: "good",
+						},
+					},
+				},
+			}
+
+			err := gc.removeUnknownMediaTypeManifestEntries(repoName, index)
+			So(err, ShouldBeNil)
+			So(len(index.Manifests), ShouldEqual, 1)
+			So(index.Manifests[0].Annotations[ispec.AnnotationRefName], ShouldEqual, "good")
+			So(removedRefs, ShouldResemble, []string{"bad"})
 		})
 
 		Convey("removeStaleManifestEntries removes cosign signature via DeleteSignature when blob is missing", func() {
@@ -2479,7 +2521,7 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 			}
 
 			deletedSig := false
-			removedRef := ""
+			var removedRefs []string
 			metaDB := mocks.MetaDBMock{
 				DeleteSignatureFn: func(repo string, signedManifestDigest godigest.Digest, sm types.SignatureMetadata) error {
 					deletedSig = true
@@ -2487,7 +2529,7 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 					return nil
 				},
 				RemoveRepoReferenceFn: func(repo, reference string, manifestDigest godigest.Digest) error {
-					removedRef = reference
+					removedRefs = append(removedRefs, reference)
 
 					return nil
 				},
@@ -2511,7 +2553,7 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(len(index.Manifests), ShouldEqual, 0)
 			So(deletedSig, ShouldBeFalse)
-			So(removedRef, ShouldEqual, malformedCosignTag)
+			So(removedRefs, ShouldResemble, []string{malformedCosignTag, missingSigDigest.String()})
 		})
 
 		Convey("removeStaleManifestEntries skips in DryRun mode", func() {
@@ -2668,7 +2710,7 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 			So(index.Manifests[0].Digest, ShouldEqual, indexDigest)
 		})
 
-		Convey("removeStaleManifestEntries drops image index when all nested manifests are missing", func() {
+		Convey("removeStaleManifestEntries drops image index older than gcDelay when all nested manifests are missing", func() {
 			indexDigest := godigest.FromString("image-index-blob")
 			missingNested := godigest.FromString("missing-nested")
 
@@ -2692,6 +2734,8 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 					return nil, zerr.ErrBlobNotFound
 				},
 				StatBlobFn: statBlobMissingUnlessPresent(indexDigest),
+				// a zero modtime: the index is older than gcDelay
+				StatBlobEntryFn: statBlobMissingUnlessPresent(indexDigest),
 			}
 
 			gc := NewGarbageCollect(imgStore, mocks.MetaDBMock{}, gcOptions, audit, log, metrics)
@@ -2709,6 +2753,59 @@ func TestGarbageCollectWithMockedImageStore(t *testing.T) {
 			err = gc.removeStaleManifestEntries(repoName, index)
 			So(err, ShouldBeNil)
 			So(len(index.Manifests), ShouldEqual, 0)
+		})
+
+		Convey("removeStaleManifestEntries keeps a new image index whose nested manifests are not stored yet", func() {
+			// a sparse on-demand sync stores the index first; its platform manifests follow when requested
+			indexDigest := godigest.FromString("image-index-blob")
+			missingNested := godigest.FromString("missing-nested")
+
+			indexBlob, err := json.Marshal(ispec.Index{
+				MediaType: ispec.MediaTypeImageIndex,
+				Manifests: []ispec.Descriptor{
+					{Digest: missingNested, MediaType: ispec.MediaTypeImageManifest},
+				},
+			})
+			So(err, ShouldBeNil)
+
+			imgStore := mocks.MockedImageStore{
+				GetAllBlobsFn: func(repo string) ([]godigest.Digest, error) {
+					return []godigest.Digest{indexDigest}, nil
+				},
+				GetBlobContentFn: func(repo string, digest godigest.Digest) ([]byte, error) {
+					if digest == indexDigest {
+						return indexBlob, nil
+					}
+
+					return nil, zerr.ErrBlobNotFound
+				},
+				StatBlobFn: statBlobMissingUnlessPresent(indexDigest),
+				// the index was just stored, so it is newer than gcDelay
+				StatBlobEntryFn: func(repo string, digest godigest.Digest) (bool, int64, time.Time, error) {
+					if digest == indexDigest {
+						return true, int64(len(indexBlob)), time.Now(), nil
+					}
+
+					return false, -1, time.Time{}, zerr.ErrBlobNotFound
+				},
+			}
+
+			gc := NewGarbageCollect(imgStore, mocks.MetaDBMock{}, gcOptions, audit, log, metrics)
+
+			index := &ispec.Index{
+				Manifests: []ispec.Descriptor{
+					{
+						Digest:    indexDigest,
+						MediaType: ispec.MediaTypeImageIndex,
+						Size:      int64(len(indexBlob)),
+					},
+				},
+			}
+
+			err = gc.removeStaleManifestEntries(repoName, index)
+			So(err, ShouldBeNil)
+			So(len(index.Manifests), ShouldEqual, 1)
+			So(index.Manifests[0].Digest, ShouldEqual, indexDigest)
 		})
 
 		Convey("removeStaleManifestEntries skips metaDB sync when metaDB is nil", func() {

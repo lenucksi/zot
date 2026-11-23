@@ -219,6 +219,14 @@ func (b *BearerAuth) Authenticate(
 			identity := res.Username
 			groups := res.Groups
 
+			// besides the groups mapped from the token claims, the identity is also a member of
+			// the accessControl groups listing it, same as for the other authentication methods
+			accessControl := ctlr.Config.CopyAccessControlConfig()
+			if accessControl != nil {
+				ac := NewAccessController(ctlr.Config)
+				groups = append(ac.getUserGroups(identity), groups...)
+			}
+
 			ctlr.Log.Debug().Str("identity", identity).Msg("the OIDC bearer authentication was successful")
 
 			userAc.SetUsername(identity)
@@ -264,6 +272,13 @@ func (b *BearerAuth) Authenticate(
 
 		if claims != nil {
 			userAc := UserAccessControlFromBearerAccess(claims.Access)
+			// A token without repository grants (empty access, or catalog-only scopes) is only
+			// meant to list the catalog. Anywhere else, e.g. the search extension which is not
+			// scope-checked above, it must not fall back to the open-registry default of Can().
+			if !userAc.HasScopedPermissions() && !isCatalogRequest(request) {
+				denyAllRepositories(userAc)
+			}
+
 			userAc.SaveOnRequest(request)
 		}
 
@@ -304,6 +319,10 @@ func (b *BearerAuth) writeAuthenticationFailure(
 	}
 }
 
+func isCatalogRequest(request *http.Request) bool {
+	return request.URL.Path == constants.RoutePrefix+constants.ExtCatalogPrefix
+}
+
 func requestedBearerResourceAction(request *http.Request) *ResourceAction {
 	if strings.TrimSuffix(request.URL.Path, "/") == constants.RoutePrefix {
 		return nil
@@ -312,7 +331,7 @@ func requestedBearerResourceAction(request *http.Request) *ResourceAction {
 	vars := mux.Vars(request)
 	name := vars["name"]
 	// Preserve the legacy repository::pull catalog scope used by external token services.
-	if name == "" && request.URL.Path != constants.RoutePrefix+constants.ExtCatalogPrefix {
+	if name == "" && !isCatalogRequest(request) {
 		return nil
 	}
 
