@@ -52,18 +52,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      # --- PFLICHT-GATE: keine PII / Secrets ins public Repo ---------------
-      - name: Secret scan — Gitleaks (full history, fail-closed)
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Secret scan — TruffleHog (verified + unknown, fail-closed)
-        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
-        with:
-          extra_args: --results=verified,unknown --no-verification
-      # -------------------------------------------------------------------
-
       - name: Resolve latest upstream release
         id: release
         env:
@@ -132,6 +120,20 @@ jobs:
           make verify-config
           make check-blackbox-prerequisites
           bats test/blackbox/sync_push.bats
+
+      # --- PFLICHT-GATE: keine PII / Secrets ins public Repo ---------------
+      # Laeuft NACH dem Merge auf dem Feature-Branch - also auf genau dem
+      # Stand, der ins Image gebaut wird (nicht auf dem Default-Branch).
+      - name: Secret scan — Gitleaks (full history, fail-closed)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Secret scan — TruffleHog (verified + unknown, fail-closed)
+        uses: trufflesecurity/trufflehog@e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9 # v3.99.2
+        with:
+          extra_args: --results=verified,unknown --no-verification
+      # -------------------------------------------------------------------
 
   # -------------------------------------------------------------------
   # Job 2: Image bauen (nur wenn prepare changed=true und alle Gates gruen)
