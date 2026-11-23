@@ -122,6 +122,7 @@ jobs:
           # binary first (USE_PREBUILT needs bin/zot-linux-amd64), then run
           # the same USE_PREBUILT path as upstream verify-config.yaml.
           python3 -m pip install --quiet 'jsonschema==4.17.3'
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
           make OS=linux ARCH=amd64 binary
           make USE_PREBUILT=1 OS=linux ARCH=amd64 verify-config
           # check-blackbox-prerequisites is an upstream gate that probes
