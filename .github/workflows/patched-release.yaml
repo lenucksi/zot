@@ -151,6 +151,11 @@ jobs:
         # the patch-modified ones), not the upstream history.
         run: |
           set -euo pipefail
+          # Install the pinned gitleaks binary (the Action brings its own,
+          # but this step runs shell commands directly).
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
+            | tar xz -C /usr/local/bin gitleaks
+          gitleaks version
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
           git fetch --no-tags upstream "refs/tags/${{ steps.release.outputs.tag }}:refs/tags/${{ steps.release.outputs.tag }}"
           mapfile -t files < <(git diff --name-only --diff-filter=ACM \
