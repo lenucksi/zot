@@ -63,7 +63,21 @@ jobs:
           set -euo pipefail
           curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz \
             | tar xz -C /usr/local/bin gitleaks
-          for f in $(git diff --name-only --diff-filter=ACM "${{ steps.resolve.outputs.tag }}" HEAD); do
+          # Scan only the files the sync-push patch adds/changes. A diff
+          # against the release tag also includes upstream commits (the
+          # feature branch tracks main), which carry long-standing fixtures.
+          for f in pkg/extensions/sync/push.go \
+                   pkg/extensions/sync/push_materialize.go \
+                   pkg/extensions/sync/push_test.go \
+                   pkg/extensions/sync/push_materialize_test.go \
+                   pkg/extensions/sync/content.go \
+                   pkg/extensions/sync/service.go \
+                   pkg/extensions/config/sync/config.go \
+                   pkg/extensions/extension_sync.go \
+                   pkg/cli/server/root.go \
+                   errors/errors.go \
+                   test/blackbox/sync_push.bats \
+                   test/ports.json; do
             [ -f "$f" ] || continue
             gitleaks detect --no-git --source "$f" --redact --no-banner --exit-code 1
           done
