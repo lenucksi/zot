@@ -151,6 +151,8 @@ jobs:
         # the patch-modified ones), not the upstream history.
         run: |
           set -euo pipefail
+          git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
+          git fetch --no-tags upstream "refs/tags/${{ steps.release.outputs.tag }}:refs/tags/${{ steps.release.outputs.tag }}"
           mapfile -t files < <(git diff --name-only --diff-filter=ACM \
             "${{ steps.release.outputs.tag }}" HEAD -- \
             'pkg/extensions/sync/*' 'pkg/extensions/config/sync/*' \
