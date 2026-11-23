@@ -295,9 +295,15 @@ jobs:
         run: |
           set -euo pipefail
           export PATH=${PATH}:${GITHUB_WORKSPACE}/hack/tools/bin
-          make check-blackbox-prerequisites
+          # check-blackbox-prerequisites probes crictl against dockershim.sock
+          # which is absent on GH runners; regctl/jq are installed via the
+          # Makefile tool target below and used directly by this script.
+          mkdir -p hack/tools/bin
+          curl -sSfL -o hack/tools/bin/regctl \
+            https://github.com/regclient/regclient/releases/download/v0.10.0/regctl-linux-amd64
+          chmod +x hack/tools/bin/regctl
           ./scripts/build_multiarch_image.sh \
-            --registry "${{ github.repository_owner }}" \
+            --registry "ghcr.io/${{ github.repository_owner }}" \
             --source-tag "${{ needs.prepare.outputs.tag }}-patched" \
             --destination-tags "${{ needs.prepare.outputs.tag }}-patched 2" \
             --file build/multiarch-zot.json
