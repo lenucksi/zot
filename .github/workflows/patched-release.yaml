@@ -1,14 +1,14 @@
-# Patched zot release image — GitHub-only, kein Control-Node.
+# Patched zot release image — GitHub Actions only, no control node.
 #
-# Trigger: GH schedule (taeglich 02:30 UTC). Prueft, ob es ein NEUES
-# upstream-Release gibt. Wenn ja:
-#   1. Gitleaks + TruffleHog als erstes Gate (FAIL-CLOSED, vor jedem Build/Push)
-#   2. upstream-main auf den Release-Commit zeigen lassen (Pull-Quelle)
-#   3. feat/sync-push-mode mit upstream-main mergen, Push des Merge-Commits
+# Trigger: GH schedule (daily 02:30 UTC). Checks whether a NEW
+# upstream release exists. If so:
+#   1. Gitleaks + TruffleHog as first gate (FAIL-CLOSED, before any build/push)
+#   2. Point upstream-main at the release commit (pull source)
+#   3. Merge upstream-main into feat/sync-push-mode, push the merge commit
 #   4. Gates: go build/test, bats sync_push.bats, golangci-lint, verify-config
-#   5. Stacker-Singlearch (4 Ziele) + Multiarch nach ghcr.io/lenucksi/zot
-#   6. cosign v3.1.3 dual-signieren (Bundle + Legacy-.sig), Verify pos/neg
-# Tags: <version>-patched (fest) + :2 (rollierend fuer AutoUpdate=registry)
+#   5. Stacker singlearch (4 targets) + multiarch to ghcr.io/lenucksi/zot
+#   6. cosign v3.1.3 dual-sign (bundle + legacy .sig), verify pos/neg
+# Tags: <version>-patched (fixed) + :2 (rolling for AutoUpdate=registry)
 name: Patched zot release image
 
 on:
@@ -30,7 +30,7 @@ env:
 jobs:
   # -------------------------------------------------------------------
   # Job 1: Secret-Scan + Release-Erkennung + Branch-Sync + Gates.
-  # Outputs: tag, sha, changed. Alles auf GitHub, kein externer Trigger.
+  # Outputs: tag, sha, changed. Everything on GitHub, no external trigger.
   # -------------------------------------------------------------------
   prepare:
     runs-on: ubuntu-22.04
@@ -121,9 +121,9 @@ jobs:
           make check-blackbox-prerequisites
           bats test/blackbox/sync_push.bats
 
-      # --- PFLICHT-GATE: keine PII / Secrets ins public Repo ---------------
-      # Laeuft NACH dem Merge auf dem Feature-Branch - also auf genau dem
-      # Stand, der ins Image gebaut wird (nicht auf dem Default-Branch).
+      # --- MANDATORY GATE: no PII / secrets in the public repo -------------
+      # Runs AFTER the merge on the feature branch — i.e. on the exact
+      # state that is built into the image (not the default branch).
       - name: Secret scan — Gitleaks (full history, fail-closed)
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
         env:
@@ -136,7 +136,7 @@ jobs:
       # -------------------------------------------------------------------
 
   # -------------------------------------------------------------------
-  # Job 2: Image bauen (nur wenn prepare changed=true und alle Gates gruen)
+  # Job 2: build image (only when prepare changed=true and all gates pass)
   # -------------------------------------------------------------------
   build:
     needs: prepare
@@ -161,9 +161,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build singlearch images (Stacker, full extensions)
-        # Matrix auf JOB-Ebene, nicht Step-Ebene.Alle 4 Ziele aus
-        # build/multiarch-zot.json muessen existieren, sonst bricht der
-        # Multiarch-Schritt ab (fail-closed).
+        # Matrix at job level, not step level. All 4 targets from
+        # build/multiarch-zot.json must exist, otherwise the
+        # multiarch step aborts (fail-closed).
         run: |
           set -euo pipefail
           for spec in linux-amd64 linux-arm64 freebsd-amd64 freebsd-arm64; do
@@ -174,12 +174,12 @@ jobs:
               base="gcr.io/distroless/base-nossl-debian13:latest-${arch}"
             fi
             echo "== ${spec}: ${base} =="
-            # Stacker-Action nicht in shell loops nutzbar -> direkter Aufruf
-            # der Action weiter unten je Ziel; hier nur vorbereiten.
+            # Stacker action cannot be used in shell loops -> direct calls
+            # of the action below per target; preparation only here.
             echo "${spec}=${base}" >> "$GITHUB_ENV"
           done
 
-      # Stacker-Build je Ziel (_matrix下发, hier explizit 4 Schritte)
+      # Stacker build per target (explicit 4 steps)
       - name: Build zot-linux-amd64
         uses: project-stacker/stacker-build-push-action@093acb5ad50bed0012616f46fdba73a8a7169db7 # main
         with:
@@ -273,14 +273,14 @@ jobs:
           COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
         run: |
           set -euo pipefail
-          [ -n "${COSIGN_KEY}" ] || { echo "COSIGN_KEY fehlt"; exit 1; }
+          [ -n "${COSIGN_KEY}" ] || { echo "COSIGN_KEY missing"; exit 1; }
           printf '%s' "${COSIGN_KEY}" > /tmp/cosign.key
           chmod 600 /tmp/cosign.key
           REF="ghcr.io/${{ github.repository_owner }}/zot:${{ needs.prepare.outputs.tag }}-patched"
-          # 1) Bundle-Format (cosign verify)
+          # 1) Bundle format (cosign verify)
           COSIGN_PRIVATE_KEY="$(cat /tmp/cosign.key)" cosign sign \
             --key env://COSIGN_PRIVATE_KEY --yes "${REF}"
-          # 2) Legacy .sig-Tag (containers/image / Podman-Policy liest NUR diesen)
+          # 2) Legacy .sig tag (containers/image / Podman policy reads ONLY this)
           COSIGN_PRIVATE_KEY="$(cat /tmp/cosign.key)" cosign sign \
             --key env://COSIGN_PRIVATE_KEY --yes \
             --new-bundle-format=false --registry-referrers-mode=legacy \
@@ -304,10 +304,10 @@ jobs:
             --use-signing-config=false \
             "ghcr.io/${{ github.repository_owner }}/zot@sha256:0000000000000000000000000000000000000000000000000000000000000000" \
             >/dev/null 2>&1; then
-            echo "NEGATIVKONTROLLE FEHLGESCHLAGEN"
+            echo "NEGATIVE CONTROL FAILED"
             exit 1
           fi
-          echo "Negative verify OK (unsignierter Digest abgelehnt)"
+          echo "Negative verify OK (unsigned digest rejected)"
 
       - name: Mark release as built
         env:
