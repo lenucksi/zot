@@ -174,7 +174,7 @@ jobs:
     needs: [release, push-multiarch-image]
     runs-on: ubuntu-22.04
     permissions:
-      contents: read
+      contents: write
       packages: write
     steps:
       - name: Check out the repo (for cosign.pub)
@@ -242,5 +242,9 @@ jobs:
         run: |
           set -euo pipefail
           SHA=$(git rev-parse HEAD)
-          gh api -X POST "repos/${{ github.repository }}/git/refs" \
-            -f "ref=refs/tags/patched-${{ needs.release.outputs.tag }}" -f "sha=${SHA}"
+          REF="refs/tags/patched-${{ needs.release.outputs.tag }}"
+          if gh api "repos/${{ github.repository }}/git/ref/tags/patched-${{ needs.release.outputs.tag }}" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${{ github.repository }}/git/refs/${REF}" -f "sha=${SHA}"
+          else
+            gh api -X POST "repos/${{ github.repository }}/git/refs" -f "ref=${REF}" -f "sha=${SHA}"
+          fi
