@@ -244,7 +244,7 @@ jobs:
           SHA=$(git rev-parse HEAD)
           REF="refs/tags/patched-${{ needs.release.outputs.tag }}"
           if gh api "repos/${{ github.repository }}/git/ref/tags/patched-${{ needs.release.outputs.tag }}" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/${{ github.repository }}/git/refs/${REF}" -f "sha=${SHA}"
+            gh api -X PATCH "repos/${{ github.repository }}/git/refs/tags/patched-${{ needs.release.outputs.tag }}" -f "sha=${SHA}"
           else
             gh api -X POST "repos/${{ github.repository }}/git/refs" -f "ref=${REF}" -f "sha=${SHA}"
           fi
