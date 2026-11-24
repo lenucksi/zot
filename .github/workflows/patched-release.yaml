@@ -218,3 +218,12 @@ jobs:
             exit 1
           fi
           echo "Negative verify OK"
+
+      - name: Mark release as built
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          gh api -X POST "repos/${{ github.repository }}/git/refs" \
+            -f "ref=refs/tags/patched-${{ needs.release.outputs.tag }}" -f "sha=${SHA}"
