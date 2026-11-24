@@ -204,6 +204,23 @@ jobs:
           COSIGN_PRIVATE_KEY="$(cat /tmp/cosign.key)" cosign sign --key env://COSIGN_PRIVATE_KEY --yes "$REF"
           COSIGN_PRIVATE_KEY="$(cat /tmp/cosign.key)" cosign sign --key env://COSIGN_PRIVATE_KEY --yes \
             --new-bundle-format=false --registry-referrers-mode=legacy --use-signing-config=false "$REF"
+          # A multiarch pull resolves to a platform manifest whose digest
+          # differs from the index digest. Sign each platform manifest too,
+          # otherwise containers/image reports "no signature exists" when
+          # pulling the index by tag (fix for ghcr.io/lenucksi/zot:2).
+          TOK=$(curl -sSf "https://ghcr.io/token?scope=repository:${{ github.repository }}:pull&service=ghcr.io" \
+            | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+          curl -sSf -H "Authorization: Bearer ${TOK}" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json' \
+            "https://ghcr.io/v2/${{ github.repository }}/manifests/${{ needs.release.outputs.tag }}-patched" \
+            | python3 -c 'import json,sys;print("\n".join(m["digest"] for m in json.load(sys.stdin)["manifests"]))' \
+            | while read -r DIGEST; do
+                [ -z "$DIGEST" ] && continue
+                echo "signing platform ${DIGEST}"
+                COSIGN_PRIVATE_KEY="$(cat /tmp/cosign.key)" cosign sign --key env://COSIGN_PRIVATE_KEY --yes \
+                  --new-bundle-format=false --registry-referrers-mode=legacy --use-signing-config=false \
+                  "ghcr.io/${{ github.repository }}@${DIGEST}"
+              done
           rm -f /tmp/cosign.key
       - name: Verify positive and negative
         run: |
